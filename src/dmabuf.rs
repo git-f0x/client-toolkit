@@ -1,5 +1,6 @@
 use crate::{error::GlobalError, globals::GlobalData, registry::GlobalProxy};
 use memmap2::{Mmap, MmapOptions};
+use rustix::fs::Dev;
 use std::{fmt, mem, os::unix::io::BorrowedFd, slice, sync::Mutex};
 use wayland_client::{
     globals::GlobalList,
@@ -12,18 +13,12 @@ use wayland_protocols::wp::linux_dmabuf::zv1::client::{
     zwp_linux_dmabuf_v1,
 };
 
-// Workaround until `libc` updates to FreeBSD 12 ABI
-#[cfg(target_os = "freebsd")]
-type dev_t = u64;
-#[cfg(not(target_os = "freebsd"))]
-use libc::dev_t;
-
 /// A preference tranche of dmabuf formats
 #[derive(Clone, Debug)]
 pub struct DmabufFeedbackTranche {
     /// `dev_t` value for preferred target device. May be scan-out or
     /// renderer device.
-    pub device: dev_t,
+    pub device: Dev,
     /// Flags for tranche
     pub flags: WEnum<TrancheFlags>,
     /// Indices of formats in the format table
@@ -65,7 +60,7 @@ impl fmt::Debug for DmabufFormat {
 #[derive(Default)]
 pub struct DmabufFeedback {
     format_table: Option<(Mmap, usize)>,
-    main_device: dev_t,
+    main_device: Dev,
     tranches: Vec<DmabufFeedbackTranche>,
 }
 
@@ -88,7 +83,7 @@ impl DmabufFeedback {
     }
 
     /// `dev_t` value for main device. Buffers must be importable from main device.
-    pub fn main_device(&self) -> dev_t {
+    pub fn main_device(&self) -> Dev {
         self.main_device
     }
 
@@ -338,7 +333,7 @@ where
                 data.pending.lock().unwrap().format_table = Some((mmap, len));
             }
             zwp_linux_dmabuf_feedback_v1::Event::MainDevice { device } => {
-                let device = dev_t::from_ne_bytes(device.try_into().unwrap());
+                let device = Dev::from_ne_bytes(device.try_into().unwrap());
                 data.pending.lock().unwrap().main_device = device;
             }
             zwp_linux_dmabuf_feedback_v1::Event::TrancheDone => {
@@ -346,7 +341,7 @@ where
                 data.pending.lock().unwrap().tranches.push(tranche);
             }
             zwp_linux_dmabuf_feedback_v1::Event::TrancheTargetDevice { device } => {
-                let device = dev_t::from_ne_bytes(device.try_into().unwrap());
+                let device = Dev::from_ne_bytes(device.try_into().unwrap());
                 data.pending_tranche.lock().unwrap().device = device;
             }
             zwp_linux_dmabuf_feedback_v1::Event::TrancheFormats { indices } => {
